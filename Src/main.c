@@ -281,9 +281,9 @@ fastPID speedPid = { // commutation speed loop time
 };
 
 fastPID currentPid = { // 1khz loop time
-    .Kp = 800,
+    .Kp = 200,
     .Ki = 0,
-    .Kd = 1000,
+    .Kd = 500,
     .integral_limit = 20000,
     .output_limit = 100000
 };
@@ -1448,12 +1448,10 @@ void tenKhzRoutine()
                     use_current_limit_adjust = minimum_duty_cycle;
                 }
                 
-                if (use_current_limit_adjust > duty_cycle) {
-                    use_current_limit_adjust = duty_cycle;
+
+                if (use_current_limit_adjust > tim1_arr) {
+                    use_current_limit_adjust = tim1_arr;
                 }
-                //if (use_current_limit_adjust > tim1_arr) {
-                //    use_current_limit_adjust = tim1_arr;
-                //}
             }
             if (stall_protection && running) { // this boosts throttle as the rpm gets lower, for crawlers
                                                // and rc cars only, do not use for multirotors.
