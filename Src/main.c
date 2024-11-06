@@ -877,7 +877,7 @@ void saveEEpromSettings()
 
 uint16_t getSmoothedCurrent()
 {
-    smoothedcurrent = ((63*total + (ADC_raw_current) )>>6);
+    total = ((63*total + (ADC_raw_current) )>>6);
 
     //total = total - readings[readIndex];
     //readings[readIndex] = ADC_raw_current;
@@ -887,7 +887,7 @@ uint16_t getSmoothedCurrent()
     //    readIndex = 0;
     //}
     //smoothedcurrent = total / numReadings;
-    return smoothedcurrent;
+    return total;
 
 
 }
