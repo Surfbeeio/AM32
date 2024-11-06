@@ -603,11 +603,11 @@ uint8_t ubAnalogWatchdogStatus = RESET;
 //	 }
 // }
 
-float doPidCalculations(struct fastPID* pidnow, int actual, int target)
-{
+float doPidCalculations(struct fastPID* pidnow, int actual, int target) {
 
     pidnow->error = actual - target;
-    pidnow->integral = pidnow->integral + pidnow->error * pidnow->Ki;
+    pidnow->integral = pidnow->integral + pidnow->error * pidnow->Ki + pidnow->last_error * pidnow->Ki;  // Reintroduce the last_error term
+
     if (pidnow->integral > pidnow->integral_limit) {
         pidnow->integral = pidnow->integral_limit;
     }
@@ -626,6 +626,7 @@ float doPidCalculations(struct fastPID* pidnow, int actual, int target)
     if (pidnow->pid_output < -pidnow->output_limit) {
         pidnow->pid_output = -pidnow->output_limit;
     }
+
     return pidnow->pid_output;
 }
 
@@ -1442,9 +1443,7 @@ void tenKhzRoutine()
         if (one_khz_loop_counter > PID_LOOP_DIVIDER) { // 1khz PID loop
             one_khz_loop_counter = 0;
             if (use_current_limit && running) {
-                use_current_limit_adjust -= (int16_t)(doPidCalculations(&currentPid, actual_current,
-                                                          CURRENT_LIMIT * 100)
-                    / 10000);
+                use_current_limit_adjust -= (int16_t)(doPidCalculations(&currentPid, actual_current, CURRENT_LIMIT * 100)/ 10000);
                 if (use_current_limit_adjust < minimum_duty_cycle) {
                     use_current_limit_adjust = minimum_duty_cycle;
                 }
