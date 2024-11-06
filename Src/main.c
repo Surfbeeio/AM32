@@ -281,7 +281,7 @@ fastPID speedPid = { // commutation speed loop time
 };
 
 fastPID currentPid = { // 1khz loop time
-    .Kp = 400,
+    .Kp = 800,
     .Ki = 0,
     .Kd = 1000,
     .integral_limit = 20000,
