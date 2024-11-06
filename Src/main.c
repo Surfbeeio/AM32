@@ -403,7 +403,7 @@ char brushed_direction_set = 0;
 
 uint16_t tenkhzcounter = 0;
 float consumed_current = 0;
-int32_t smoothed_raw_current = 0;
+uint32_t smoothed_raw_current = 0;
 int16_t actual_current = 0;
 
 char lowkv = 0;
@@ -2032,7 +2032,8 @@ int main(void)
 #endif
             degrees_celsius = converted_degrees;
             battery_voltage = ((7 * battery_voltage) + ((ADC_raw_volts * 3300 / 4095 * VOLTAGE_DIVIDER) / 100)) >> 3;
-            smoothed_raw_current = getSmoothedCurrent();
+            //smoothed_raw_current = getSmoothedCurrent();
+            smoothed_raw_current = ((63*smoothed_raw_current + (ADC_raw_current) )>>6);
             actual_current = ((smoothed_raw_current * 3300 / 41) - (CURRENT_OFFSET * 100)) / (MILLIVOLT_PER_AMP);
             if (actual_current < 0) {
                 actual_current = 0;
