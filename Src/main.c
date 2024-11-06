@@ -281,9 +281,9 @@ fastPID speedPid = { // commutation speed loop time
 };
 
 fastPID currentPid = { // 1khz loop time
-    .Kp = 200,
+    .Kp = 400,
     .Ki = 0,
-    .Kd = 500,
+    .Kd = 1000,
     .integral_limit = 20000,
     .output_limit = 100000
 };
@@ -471,7 +471,7 @@ uint16_t adjusted_input = 0;
 #define TEMP110_CAL_VALUE ((uint16_t*)((uint32_t)0x1FFFF7C2))
 
 uint16_t smoothedcurrent = 0;
-const uint8_t numReadings = 100; // the readings from the analog input
+const uint8_t numReadings = 50; // the readings from the analog input
 uint8_t readIndex = 0; // the index of the current reading
 uint32_t total = 0;
 uint16_t readings[100];
@@ -603,11 +603,11 @@ uint8_t ubAnalogWatchdogStatus = RESET;
 //	 }
 // }
 
-float doPidCalculations(struct fastPID* pidnow, int actual, int target) {
+float doPidCalculations(struct fastPID* pidnow, int actual, int target)
+{
 
-    pidnow->error = actual - target;
-    pidnow->integral = pidnow->integral + pidnow->error * pidnow->Ki + pidnow->last_error * pidnow->Ki;  // Reintroduce the last_error term
-
+    pidnow->error = target - actual ;
+    pidnow->integral += pidnow->error * pidnow->Ki;
     if (pidnow->integral > pidnow->integral_limit) {
         pidnow->integral = pidnow->integral_limit;
     }
@@ -626,7 +626,6 @@ float doPidCalculations(struct fastPID* pidnow, int actual, int target) {
     if (pidnow->pid_output < -pidnow->output_limit) {
         pidnow->pid_output = -pidnow->output_limit;
     }
-
     return pidnow->pid_output;
 }
 
@@ -878,15 +877,19 @@ void saveEEpromSettings()
 
 uint16_t getSmoothedCurrent()
 {
-    total = total - readings[readIndex];
-    readings[readIndex] = ADC_raw_current;
-    total = total + readings[readIndex];
-    readIndex = readIndex + 1;
-    if (readIndex >= numReadings) {
-        readIndex = 0;
-    }
-    smoothedcurrent = total / numReadings;
+    smoothedcurrent = ((63*total + (ADC_raw_current) )>>6);
+
+    //total = total - readings[readIndex];
+    //readings[readIndex] = ADC_raw_current;
+    //total = total + readings[readIndex];
+    //readIndex = readIndex + 1;
+    //if (readIndex >= numReadings) {
+    //    readIndex = 0;
+    //}
+    //smoothedcurrent = total / numReadings;
     return smoothedcurrent;
+
+
 }
 
 void getBemfState()
@@ -1337,20 +1340,21 @@ if (!stepper_sine && armed) {
                     duty_cycle_setpoint = startup_max_duty_cycle;
                 }
             }
+            if (stall_protection_adjust > 0 && input > 47) {
+
+                duty_cycle_setpoint = duty_cycle_setpoint + (uint16_t)stall_protection_adjust;
+            }
 
             if (duty_cycle_setpoint > duty_cycle_maximum) {
                 duty_cycle_setpoint = duty_cycle_maximum;
             }
+
             if (use_current_limit) {
                 if (duty_cycle_setpoint > use_current_limit_adjust) {
                     duty_cycle_setpoint = use_current_limit_adjust;
                 }
             }
 
-            if (stall_protection_adjust > 0 && input > 47) {
-
-                duty_cycle_setpoint = duty_cycle_setpoint + (uint16_t)stall_protection_adjust;
-            }
         }
     }
 #endif
