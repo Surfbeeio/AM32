@@ -2015,23 +2015,16 @@ int main(void)
         if (send_telemetry) {
 #ifdef USE_SERIAL_TELEMETRY
 
-            // Build eRPM with fault sentinels for serial telemetry only.
-            // Normal e_rpm remains untouched for control.
-            bool fault_stuck    = (stuck_rotor_protection && (bemf_timeout_happened > bemf_timeout));
-            //bool fault_overtemp = (degrees_celsius > TEMPERATURE_LIMIT);
+                // Build eRPM with fault sentinels for serial telemetry only.
+                // Normal e_rpm remains untouched for control.
+                uint16_t er_tx = (uint16_t)e_rpm;  // default: real eRPM
 
-            uint16_t er_tx = (uint16_t)e_rpm;  // default: real eRPM
+                if ((bemf_timeout_happened > bemf_timeout * ( 1 + (crawler_mode*100))&& stuck_rotor_protection)) {
+                    er_tx = 0xFFFE;         // stuck-rotor
+                }
 
-            //if (fault_stuck && fault_overtemp) {
-            //   er_tx = 0xFFFF;         // general fault (multiple faults)
-            //} else 
-            if (fault_stuck) {
-                er_tx = 0xFFFE;         // stuck-rotor
-            } //else if (fault_overtemp) {
-            //       er_tx = 0xFFFD;         // over-temp
-            //   }
             makeTelemPackage(degrees_celsius, battery_voltage, actual_current,
-                (uint16_t)consumed_current, e_rpm);
+                (uint16_t)consumed_current, er_tx);
             send_telem_DMA();
             send_telemetry = 0;
 #endif
