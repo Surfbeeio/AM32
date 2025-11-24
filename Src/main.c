@@ -2013,7 +2013,8 @@ int main(void)
         }
 #endif
         if (send_telemetry) {
-#ifdef 
+#ifdef USE_SERIAL_TELEMETRY
+
             // Build eRPM with fault sentinels for serial telemetry only.
             // Normal e_rpm remains untouched for control.
             bool fault_stuck    = (stuck_rotor_protection && (bemf_timeout_happened > bemf_timeout));
