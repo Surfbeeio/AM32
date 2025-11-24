@@ -213,6 +213,13 @@ an settings option)
 				 - todo fix signal detection
 *2.16    - add L431 
 				 - add variable auto timing
+*2.17    ### Added
+	- **Telemetry fault signalling via eRPM “magic” values (serial telemetry):**
+
+	- `0xFFFE` → Stuck-rotor
+
+	- Normal operation continues to send real `e_rpm`. Only the **transmitted** value is modified; control-path `e_rpm` is unchanged.
+             
 */
 #include "main.h"
 #include "ADC.h"
@@ -2006,7 +2013,22 @@ int main(void)
         }
 #endif
         if (send_telemetry) {
-#ifdef USE_SERIAL_TELEMETRY
+#ifdef 
+            // Build eRPM with fault sentinels for serial telemetry only.
+            // Normal e_rpm remains untouched for control.
+            bool fault_stuck    = (stuck_rotor_protection && (bemf_timeout_happened > bemf_timeout));
+            //bool fault_overtemp = (degrees_celsius > TEMPERATURE_LIMIT);
+
+            uint16_t er_tx = (uint16_t)e_rpm;  // default: real eRPM
+
+            //if (fault_stuck && fault_overtemp) {
+            //   er_tx = 0xFFFF;         // general fault (multiple faults)
+            //} else 
+            if (fault_stuck) {
+                er_tx = 0xFFFE;         // stuck-rotor
+            } //else if (fault_overtemp) {
+            //       er_tx = 0xFFFD;         // over-temp
+            //   }
             makeTelemPackage(degrees_celsius, battery_voltage, actual_current,
                 (uint16_t)consumed_current, e_rpm);
             send_telem_DMA();
