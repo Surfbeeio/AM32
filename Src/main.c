@@ -403,6 +403,7 @@ uint16_t low_voltage_count = 0;
 uint16_t telem_ms_count;
 
 uint16_t VOLTAGE_DIVIDER = TARGET_VOLTAGE_DIVIDER; // 100k upper and 10k lower resistor in divider
+uint8_t VOLTAGE_CAL = 100;   // percent trim, 100 = 1.00x, stored at eepromBuffer[47]
 uint16_t
     battery_voltage; // scale in volts * 10.  1260 is a battery voltage of 12.60
 char cell_count = 0;
@@ -484,6 +485,22 @@ uint32_t total = 0;
 uint16_t readings[100];
 
 uint8_t bemf_timeout_happened = 0;
+
+// Stall retry: 3 retries per 5s rolling window, then latch off until neutral
+#define STUCK_MAX_RETRIES   3
+#define STUCK_WINDOW_TICKS  50000   // 5s at 10kHz
+#define STUCK_RAMP_LOWSINE  150     // adjusted_input below this = slow sine crawl
+#define STUCK_RAMP_DIV_SINE 24      // +1 every 24 ticks in crawl region
+#define STUCK_RAMP_DIV_RUN  8       // +1 every 8 ticks once climbing past crawl
+uint8_t  stuck_retry_count  = 0;
+uint16_t stuck_window_timer = 0;
+char     stuck_latched      = 0;
+char     stuck_waiting      = 0;
+uint16_t stuck_retry_timer  = 0;
+char     stuck_ramping      = 0;
+uint16_t stuck_ramp_adj     = 0;
+uint8_t  stuck_ramp_sub     = 0;
+
 uint8_t changeover_step = 5;
 uint8_t filter_level = 5;
 uint8_t running = 0;
@@ -829,6 +846,12 @@ void loadEEpromSettings()
             EDT_ARMED = 1;
         }
 
+        if (eepromBuffer[47] >= 50 && eepromBuffer[47] <= 150) {
+            VOLTAGE_CAL = eepromBuffer[47];
+        } else {
+            VOLTAGE_CAL = 100;
+        }
+
         if (motor_kv < 300) {
             low_rpm_throttle_limit = 0;
         }
@@ -879,6 +902,7 @@ void saveEEpromSettings()
         eepromBuffer[22] = 0x00;
     }
     eepromBuffer[23] = advance_level;
+    eepromBuffer[47] = VOLTAGE_CAL;
     save_flash_nolib(eepromBuffer, 176, eeprom_address);
 }
 
@@ -1163,14 +1187,55 @@ void setInput()
         adjusted_input = newinput;
     }
 #ifndef BRUSHED_MODE
-    if ((bemf_timeout_happened > bemf_timeout) && stuck_rotor_protection) {
+    // Reset stall-retry state when throttle returns to neutral
+    if (adjusted_input == 0) {
+        stuck_retry_count = 0;
+        stuck_window_timer = 0;
+        stuck_latched = 0;
+        stuck_waiting = 0;
+        stuck_retry_timer = 0;
+        stuck_ramping = 0;
+        stuck_ramp_adj = 0;
+    }
+    // Soft-ramp the command after a retry so the rotor spins up gradually
+    if (stuck_ramping) {
+        if (adjusted_input == 0 || stuck_ramp_adj >= adjusted_input) {
+            stuck_ramping = 0;
+        } else {
+            adjusted_input = stuck_ramp_adj;
+        }
+    }
+    if ((bemf_timeout_happened > bemf_timeout * (1 + (crawler_mode * 100))) && stuck_rotor_protection) {
         allOff();
         maskPhaseInterrupts();
         input = 0;
-        bemf_timeout_happened = 102;
+        if (stuck_window_timer >= STUCK_WINDOW_TICKS && !stuck_latched) {
+            stuck_retry_count = 0;  // clean run for >5s, fresh window
+        }
+        if (stuck_latched) {
+            bemf_timeout_happened = 102;  // off until neutral
+        } else if (stuck_retry_count >= STUCK_MAX_RETRIES) {
+            stuck_latched = 1;
+            bemf_timeout_happened = 102;
+        } else if (!stuck_waiting) {
+            stuck_waiting = 1;
+            stuck_retry_timer = 0;
+            bemf_timeout_happened = 102;
+        } else if (stuck_retry_timer >= 5000) {  // 500ms elapsed, fire restart
+            stuck_waiting = 0;
+            stuck_window_timer = 0;
+            stuck_retry_count++;
+            running = 0;
+            bemf_timeout_happened = 0;
+            stuck_ramping = 1;
+            stuck_ramp_adj = 30;
+            stuck_ramp_sub = 0;
+        } else {
+            bemf_timeout_happened = 102;  // still in 500ms cool-off
+        }
 #ifdef USE_RGB_LED
         GPIOB->BRR = LL_GPIO_PIN_8; // on red
-        GPIOB->BSRR = LL_GPIO_PIN_5; //
+        GPIOB->BSRR = LL_GPIO_PIN_5;
         GPIOB->BSRR = LL_GPIO_PIN_3;
 #endif
     } else {
@@ -1368,6 +1433,15 @@ void tenKhzRoutine()
     tenkhzcounter++;
     ledcounter++;
     one_khz_loop_counter++;
+    if (stuck_window_timer < 60000) { stuck_window_timer++; }
+    if (stuck_ramping) {
+        uint8_t rdiv = (stuck_ramp_adj < STUCK_RAMP_LOWSINE) ? STUCK_RAMP_DIV_SINE : STUCK_RAMP_DIV_RUN;
+        if (++stuck_ramp_sub >= rdiv) {
+            stuck_ramp_sub = 0;
+            if (stuck_ramp_adj < 2047) { stuck_ramp_adj++; }
+        }
+    }
+    if (stuck_waiting && stuck_retry_timer < 60000) { stuck_retry_timer++; }
     if (!armed) {
         if (cell_count == 0) {
             if (inputSet) {
@@ -2047,7 +2121,12 @@ int main(void)
             converted_degrees = getConvertedDegrees(ADC_raw_temp);
 #endif
             degrees_celsius = converted_degrees;
-            battery_voltage = ((7 * battery_voltage) + ((ADC_raw_volts * 3300 / 4095 * VOLTAGE_DIVIDER) / 100)) >> 3;
+            {
+                uint32_t v = (uint32_t)ADC_raw_volts * 3300UL / 4095UL;
+                v = v * (uint32_t)VOLTAGE_DIVIDER / 100UL;
+                v = v * (uint32_t)VOLTAGE_CAL / 100UL;
+                battery_voltage = ((7 * battery_voltage) + (uint16_t)v) >> 3;
+            }
             //smoothed_raw_current = getSmoothedCurrent();
             smoothed_raw_current = ((63*smoothed_raw_current + (ADC_raw_current) )>>6);
             actual_current = ((smoothed_raw_current * 3300 / 41) - (CURRENT_OFFSET * 100)) / (MILLIVOLT_PER_AMP);
